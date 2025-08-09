@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>חידון על הכלכלה הפוליטית של המזרח התיכון</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Assistant', sans-serif;
+        }
+        .quiz-container {
+            max-width: 800px;
+            margin: auto;
+        }
+        .nav-square {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            border: 1px solid #d1d5db;
+            transition: all 0.2s ease-in-out;
+        }
+        .nav-square.current {
+            background-color: #3b82f6;
+            color: white;
+            border-color: #3b82f6;
+        }
+        .nav-square.answered.correct {
+            background-color: #dcfce7;
+            border-color: #22c55e;
+            color: #166534;
+        }
+        .nav-square.answered.incorrect {
+            background-color: #fee2e2;
+            border-color: #ef4444;
+            color: #991b1b;
+        }
+        .answer-btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.8;
+        }
+        .answer-btn.correct {
+            background-color: #22c55e !important;
+            color: white !important;
+            border-color: #16a34a !important;
+        }
+        .answer-btn.incorrect {
+            background-color: #ef4444 !important;
+            color: white !important;
+            border-color: #dc2626 !important;
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="quiz-container p-4 sm:p-6 md:p-8">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl sm:text-4xl font-bold text-gray-900">חידון ידע</h1>
+            <p class="text-lg text-gray-600 mt-2">הכלכלה הפוליטית של המזרח התיכון</p>
+        </header>
+
+        <main id="quiz-area" class="bg-white p-6 rounded-xl shadow-lg">
+            <div id="question-header" class="mb-4">
+                <h2 class="text-xl font-semibold">שאלה <span id="question-number">1</span> מתוך <span id="total-questions">25</span></h2>
+                <div class="w-full bg-gray-200 rounded-full h-2.5 mt-2">
+                    <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+            </div>
+            
+            <p id="question-text" class="text-lg mb-6 min-h-[60px]"></p>
+            
+            <div id="answers-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <!-- Answer buttons will be inserted here -->
+            </div>
+            
+            <div id="feedback-container" class="mt-6 p-4 rounded-lg text-center hidden">
+                <p id="feedback-text" class="font-bold text-lg mb-2"></p>
+                <p id="explanation-text" class="text-base"></p>
+                <button id="expand-btn" class="mt-4 bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-lg transition-colors">✨ הרחב את ההסבר</button>
+                <div id="gemini-explanation-loader" class="loader hidden"></div>
+                <div id="gemini-explanation-area" class="mt-4 p-4 bg-gray-50 rounded-lg text-right hidden border border-gray-200"></div>
+            </div>
+        </main>
+
+        <footer class="mt-8">
+            <div id="navigation-container" class="flex flex-wrap justify-center gap-2">
+                <!-- Navigation squares will be inserted here -->
+            </div>
+            <div id="results-container" class="hidden text-center bg-white p-6 rounded-xl shadow-lg mt-6">
+                <h3 class="text-2xl font-bold mb-4">החידון הושלם!</h3>
+                <p class="text-xl">הציון שלך: <span id="score" class="font-bold"></span></p>
+                <div class="flex justify-center gap-4 mt-6">
+                    <button id="restart-btn" class="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">התחל מחדש</button>
+                    <button id="generate-question-btn" class="bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-6 rounded-lg transition-colors">✨ צור שאלה חדשה</button>
+                </div>
+                 <div id="gemini-generation-loader" class="loader hidden"></div>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // --- Gemini API Call Function ---
+        async function callGemini(prompt, isJson = false, retries = 3, delay = 1000) {
+            const apiKey = ""; // Will be provided by the environment
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+            let chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
+            const payload = { contents: chatHistory };
+
+            if (isJson) {
+                payload.generationConfig = {
+                    responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            question: { type: "STRING" },
+                            answers: {
+                                type: "ARRAY",
+                                items: {
+                                    type: "OBJECT",
+                                    properties: {
+                                        text: { type: "STRING" },
+                                        correct: { type: "BOOLEAN" }
+                                    },
+                                    required: ["text", "correct"]
+                                }
+                            },
+                            explanation: { type: "STRING" }
+                        },
+                        required: ["question", "answers", "explanation"]
+                    }
+                };
+            }
+
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    if (result.candidates && result.candidates.length > 0 &&
+                        result.candidates[0].content && result.candidates[0].content.parts &&
+                        result.candidates[0].content.parts.length > 0) {
+                        const text = result.candidates[0].content.parts[0].text;
+                        return text;
+                    } else {
+                         throw new Error("Invalid response structure from Gemini API");
+                    }
+                } catch (error) {
+                    console.error(`API call attempt ${i + 1} failed:`, error);
+                    if (i < retries - 1) {
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2; // Exponential backoff
+                    } else {
+                        return "שגיאה: לא ניתן היה לקבל תשובה מהשרת. נסה שוב מאוחר יותר.";
+                    }
+                }
+            }
+        }
+
+
+        let quizData = [
+            {
+                question: "מהם שלושת עמודי התווך המרכזיים של 'קונצנזוס וושינגטון' כפי שהוצג בטקסט?",
+                answers: [
+                    { text: "יציבות מקרו-כלכלית, הסתמכות על השוק והמגזר הפרטי, ופתיחות לסחר בינלאומי.", correct: true },
+                    { text: "תיעוש מואץ, הגדלת המגזר הציבורי, והגנה על תוצרת מקומית.", correct: false },
+                    { text: "הלאמת תעשיות מפתח, סובסידיות נרחבות, ופיקוח על מטבע חוץ.", correct: false },
+                    { text: "השקעה בתשתיות, רפורמה אגררית, וחיזוק איגודים מקצועיים.", correct: false }
+                ],
+                explanation: "הטקסט מציין במפורש כי קונצנזוס וושינגטון התמקד בשלושה עמודי תווך: יציבות מקרו-כלכלית, הסתמכות על מנגנוני השוק והמגזר הפרטי, ופתיחות לסחר בינלאומי וצמיחה מונעת יצוא."
+            },
+            {
+                question: "מהי התופעה המכונה 'קפיטליזם מקורבים' (Crony Capitalism) שצמחה במדינות המזרח התיכון בעקבות הרפורמות הכלכליות?",
+                answers: [
+                    { text: "העברת נכסי ציבור ועושר לקבוצה קטנה של מקורבים לשלטון, תוך חניקת התחרות.", correct: true },
+                    { text: "פיתוח שוק חופשי ותחרותי לחלוטין, ללא כל התערבות ממשלתית.", correct: false },
+                    { text: "מערכת שבה כל החברות נמצאות בבעלות המדינה ומנוהלות על ידי פקידים.", correct: false },
+                    { text: "מודל כלכלי המבוסס על קואופרטיבים בבעלות עובדים.", correct: false }
+                ],
+                explanation: "הטקסט מתאר את 'קפיטליזם המקורבים' כצורה של הפרטה לא תחרותית, שבה נכסי ציבור ועושר מועברים לקבוצה קטנה של מקורבים לשלטון, מה שפוגע בתחרות ובדינמיות של הכלכלה."
+            },
+            {
+                question: "באיזו מדינה, על פי הטקסט, 'הנמרים האנטוליים החדשים' (יזמים אדוקים ופעילים פוליטית) מילאו תפקיד מרכזי בצמיחה הכלכלית?",
+                answers: [
+                    { text: "טורקיה", correct: true },
+                    { text: "מצרים", correct: false },
+                    { text: "איראן", correct: false },
+                    { text: "סוריה", correct: false }
+                ],
+                explanation: "הטקסט מציין במפורש את הופעתם של 'הנמרים האנטוליים החדשים' בטורקיה, שהיו יזמים וקפיטליסטים ייצואיים מאנטוליה, ותרמו רבות לעלייה ביצוא החדש ולצמיחה הכלכלית תחת מפלגת ה-AKP."
+            },
+            {
+                question: "מה הייתה אחת הסיבות המרכזיות לביצועים הכלכליים הירודים במצרים תחת שלטון מובארק, למרות הרפורמות?",
+                answers: [
+                    { text: "ריכוז האשראי וההזדמנויות הכלכליות בידי מספר קטן של חברות מקושרות פוליטית.", correct: true },
+                    { text: "היעדר מוחלט של השקעות זרות במדינה.", correct: false },
+                    { text: "מדיניות של בידוד כלכלי מוחלט מהעולם.", correct: false },
+                    { text: "עודף רגולציה שמנע כל פעילות של המגזר הפרטי.", correct: false }
+                ],
+                explanation: "הטקסט מדגיש כי במצרים, חברות מקושרות פוליטית (כמו אלו של אחמד עז ואחמד אל-מע'רבי) שלטו בנוף התאגידי, קיבלו כמעט 90% מהאשראי, והגבילו את התחרותיות והדינמיות של שאר הכלכלה."
+            },
+            {
+                question: "מה הייתה אחת התוצאות של 'מלחמת יוני' 1967 על הפלסטינים, כפי שמתואר בפרק 17?",
+                answers: [
+                    { text: "עלייתם של ארגוני התנגדות פלסטיניים עצמאיים, כמו אל-פתח, שלקחו אחריות על שחרור מולדתם.", correct: true },
+                    { text: "הקמת מדינה פלסטינית עצמאית בגדה המערבית וברצועת עזה.", correct: false },
+                    { text: "פתרון מלא וסופי של בעיית הפליטים הפלסטינים.", correct: false },
+                    { text: "היחלשות מוחלטת של הזהות הלאומית הפלסטינית.", correct: false }
+                ],
+                explanation: "הטקסט מציין כי התבוסה הערבית ב-1967 הייתה זרז שגרם לפלסטינים להגיע למסקנה שעליהם לקחת אחריות על שחרורם, והובילה לעליית ארגוני התנגדות עצמאיים ולהשתלטותם על אש\"ף."
+            },
+            {
+                question: "מה הייתה 'המהפכה הלבנה' שהוביל השאה באיראן?",
+                answers: [
+                    { text: "תוכנית רפורמות מלמעלה שכללה רפורמת קרקעות והקמת חיל אוריינות, במטרה למודרניזציה של המדינה.", correct: true },
+                    { text: "הפיכה צבאית שהחזירה את המלוכה לשלטון.", correct: false },
+                    { text: "מהפכה עממית שהפילה את שלטון השאה.", correct: false },
+                    { text: "תוכנית להלאמת תעשיית הנפט האיראנית.", correct: false }
+                ],
+                explanation: "'המהפכה הלבנה', שהוכרזה ב-1963, הייתה תוכנית רפורמות של השאה שנועדה למודרניזציה של איראן. מרכיביה המרכזיים היו רפורמת קרקעות וחיל אוריינות, אך היא לא הצליחה ליצור נאמנות עממית למשטר."
+            },
+            {
+                question: "איזו אידיאולוגיה, שנוסדה על ידי מישל אפלאק וסלאח אל-דין אל-ביטאר, שילבה לאומיות וסוציאליזם והייתה בעלת השפעה רבה בסוריה ובעיראק?",
+                answers: [
+                    { text: "בעת'יזם", correct: true },
+                    { text: "נאצריזם", correct: false },
+                    { text: "קומוניזם", correct: false },
+                    { text: "ווהאביזם", correct: false }
+                ],
+                explanation: "הטקסט מזהה את מפלגת הבעת' כארגון שנוסד על ידי אפלאק ואל-ביטאר, ודגל באחדות ערבית, חופש וסוציאליזם. למפלגה הייתה השפעה מכרעת בפוליטיקה הסורית והעיראקית."
+            },
+            {
+                question: "מה הייתה מדיניות ה'אינפיתאח' (הפתיחות) שהנהיג אנואר סאדאת במצרים?",
+                answers: [
+                    { text: "ליברליזציה כלכלית שנועדה לעודד השקעות פרטיות וזרות ולפרק חלקים מהמערכת הסוציאליסטית של נאצר.", correct: true },
+                    { text: "מדיניות של הסתגרות כלכלית מוחלטת מהמערב.", correct: false },
+                    { text: "הרחבה משמעותית של המגזר הציבורי והלאמת כל התעשיות הפרטיות.", correct: false },
+                    { text: "תוכנית להקמת קואופרטיבים חקלאיים בכל רחבי מצרים.", correct: false }
+                ],
+                explanation: "ה'אינפיתאח' הייתה תוכניתו הכלכלית של סאדאת לליברליזציה של הכלכלה המצרית, במטרה למשוך הון זר ומקומי ולסטות מהמודל הסוציאליסטי של קודמו, גמאל עבד אל-נאצר."
+            },
+            {
+                question: "מה היה הגורם המרכזי שהוביל להתערבות הצבאית של טורקיה שלוש פעמים (1960, 1971, 1980) בפוליטיקה?",
+                answers: [
+                    { text: "תפיסת הצבא את עצמו כ'שומר' עקרונות הכמאליזם החילוניים והדמוקרטיים, אל מול חוסר יציבות פוליטית וסטייה מהם.", correct: true },
+                    { text: "רצון להקים דיקטטורה צבאית קבועה.", correct: false },
+                    { text: "לחץ מצד ברית המועצות להתערב.", correct: false },
+                    { text: "דרישה עממית להפלת הממשלות האזרחיות.", correct: false }
+                ],
+                explanation: "הטקסט מסביר שהצבא הטורקי ראה את עצמו כשומר מורשתו של אטאטורק. ההתערבויות בוצעו כדי לשמר את עקרונות הכמאליזם כאשר הממשלות האזרחיות נתפסו כסוטות מהם, או כשהמדינה נקלעה לחוסר יציבות."
+            },
+            {
+                question: "מדוע, על פי הטקסט, משטרים במדינות RRLA (כמו אלג'יריה וסוריה) נטו פחות לבצע התאמות מבניות כלכליות בהשוואה למדינות RPLA (כמו מצרים ותוניסיה)?",
+                answers: [
+                    { text: "הם הסתמכו יותר על דיכוי במימון נפט מאשר על הבטחה לשגשוג, ולא היו צריכים להתפשר באותה מידה.", correct: true },
+                    { text: "הכלכלות שלהן היו במצב טוב יותר ולא נזקקו לרפורמות.", correct: false },
+                    { text: "הייתה להן תמיכה עממית רחבה שמנעה את הצורך בשינויים.", correct: false },
+                    { text: "המוסדות הפיננסיים הבינלאומיים לא הציעו להם הלוואות.", correct: false }
+                ],
+                explanation: "הטקסט מבחין בין מדינות RRLA, שהכנסות הנפט אפשרו להן להסתמך על דיכוי וחסות כדי לשמור על שלטונן, לבין מדינות RPLA, שנאלצו לחפש מודלים כלכליים חדשים כדי לשרוד."
+            },
+            {
+                question: "מה היה 'ספטמבר השחור' ב-1970?",
+                answers: [
+                    { text: "עימות צבאי בירדן בין צבא ירדן לארגוני הגרילה הפלסטיניים, שהסתיים בגירוש אש\"ף מירדן.", correct: true },
+                    { text: "הפיכה צבאית בסוריה שהעלתה את חאפז אל-אסד לשלטון.", correct: false },
+                    { text: "טבח במחנות הפליטים סברה ושתילה בלבנון.", correct: false },
+                    { text: "הכרזת מלחמה של מצרים על ישראל.", correct: false }
+                ],
+                explanation: "אירועי 'ספטמבר השחור' ב-1970 היו עימות עקוב מדם בין צבא ירדן, בפיקודו של המלך חוסיין, לבין ארגוני אש\"ף שפעלו במדינה. העימות הסתיים בתבוסת הפלסטינים והעברת בסיסם ללבנון."
+            },
+            {
+                question: "במהלך שנות ה-50, מדוע המפלגה הדמוקרטית בטורקיה זכתה לפופולריות רבה והצליחה לנצח את מפלגתו של אטאטורק (RPP)?",
+                answers: [
+                    { text: "היא התחייבה לצמצם את התערבות המדינה הכמאליסטית ופנתה לקהל הכפרי ולמגזר העסקי.", correct: true },
+                    { text: "היא הבטיחה להלאים את כל התעשיות ולהרחיב את המגזר הציבורי.", correct: false },
+                    { text: "היא קראה לכינון מחדש של הח'ליפות העות'מאנית.", correct: false },
+                    { text: "היא זכתה לתמיכה צבאית ישירה שהבטיחה את ניצחונה.", correct: false }
+                ],
+                explanation: "הטקסט מסביר שהמפלגה הדמוקרטית צברה תמיכה על ידי ניצול חוסר הרצון העממי, במיוחד בכפרים, מהתערבות המדינה בחיי האזרחים, והציגה את עצמה כנציגת האזרח הפשוט וקהילת העסקים."
+            },
+            {
+                question: "מה הייתה התוצאה המרכזית של הלאמת תעשיית הנפט האיראנית על ידי מוחמד מוסאדיק?",
+                answers: [
+                    { text: "חרם עולמי על הנפט האיראני, משבר כלכלי, ובסופו של דבר הפיכה שהפילה את מוסאדיק והחזירה את השאה.", correct: true },
+                    { text: "שגשוג כלכלי מיידי ועצמאות מלאה מכל השפעה זרה.", correct: false },
+                    { text: "ברית צבאית וכלכלית עם ברית המועצות.", correct: false },
+                    { text: "הסכם שלום היסטורי עם בריטניה וארצות הברית.", correct: false }
+                ],
+                explanation: "הטקסט מתאר כיצד הלאמת הנפט הובילה לחרם בינלאומי שהובילו בריטניה וארה\"ב. החרם גרם למשבר כלכלי חריף באיראן, שהיה גורם מרכזי בהפיכה שאורגנה על ידי ה-CIA וה-MI6 והפילה את ממשלת מוסאדיק."
+            },
+            {
+                question: "מה הייתה מטרתו העיקרית של הנשיא סאדאת ביוזמת מלחמת אוקטובר 1973?",
+                answers: [
+                    { text: "לשבור את הקיפאון הדיפלומטי, להוכיח את כוחה הצבאי של מצרים, ולערב את המעצמות בתהליך השלום.", correct: true },
+                    { text: "לכבוש את כל שטחה של ישראל ולהשמיד אותה.", correct: false },
+                    { text: "לבדוק מערכות נשק סובייטיות חדשות בתנאי קרב.", correct: false },
+                    { text: "להסיח את דעת הקהל המצרי מבעיות כלכליות פנימיות.", correct: false }
+                ],
+                explanation: "הטקסט מבהיר שמטרותיו של סאדאת במלחמה היו מוגבלות ודיפלומטיות במהותן: להחזיר את האמינות הצבאית של מצרים ולשבור את הסטטוס קוו של 'אין מלחמה, אין שלום' כדי לאלץ את המעצמות להתערב."
+            },
+            {
+                question: "מה אפיין את המערכת הפוליטית בלבנון שנקבעה ב'אמנה הלאומית' של 1943?",
+                answers: [
+                    { text: "מערכת עדתית שחילקה את עמדות הכוח הפוליטיות בין הקהילות הדתיות השונות.", correct: true },
+                    { text: "מערכת נשיאותית חזקה עם נשיא שנבחר בבחירות ישירות על ידי כל העם.", correct: false },
+                    { text: "מדינה חילונית לחלוטין עם הפרדה מוחלטת בין דת ומדינה.", correct: false },
+                    { text: "דיקטטורה צבאית שנשלטה על ידי מפקד הצבא.", correct: false }
+                ],
+                explanation: "האמנה הלאומית ביססה את הפוליטיקה העדתית בלבנון, וקבעה נוסחה לחלוקת תפקידים בכירים בממשל (נשיא מרוני, ראש ממשלה סוני, יו\"ר פרלמנט שיעי) בין הקהילות הדתיות."
+            },
+            {
+                question: "מה היה הגורם המרכזי שאיפשר למשפחת אל-סעוד לבסס את שלטונה בערב הסעודית?",
+                answers: [
+                    { text: "ברית היסטורית עם האידיאולוגיה האסלאמית הווהאבית, שסיפקה לגיטימציה דתית לשלטונם.", correct: true },
+                    { text: "תמיכה צבאית ישירה מהאימפריה העות'מאנית.", correct: false },
+                    { text: "אימוץ מוקדם של דמוקרטיה פרלמנטרית.", correct: false },
+                    { text: "ברית עם משטרים סוציאליסטיים בעולם הערבי.", correct: false }
+                ],
+                explanation: "הטקסט מדגיש כי שלטון בית סעוד התבסס על הברית ההיסטורית מהמאה ה-18 עם התנועה הווהאבית, שהעניקה למשפחה לגיטימציה דתית ואידיאולוגית לשלוט."
+            },
+            {
+                question: "מה הייתה אחת ההשפעות המרכזיות של אמברגו הנפט הערבי ב-1973?",
+                answers: [
+                    { text: "עלייה דרמטית במחירי הנפט העולמיים והפיכת מדינות המפרץ למעצמות פיננסיות.", correct: true },
+                    { text: "ירידה חדה במחירי הנפט ופשיטת רגל של מדינות אופ\"ק.", correct: false },
+                    { text: "התערבות צבאית אמריקאית מיידית בערב הסעודית.", correct: false },
+                    { text: "הסכם שלום כולל ומיידי בין ישראל לכל מדינות ערב.", correct: false }
+                ],
+                explanation: "אמברגו הנפט של 1973 גרם לזעזוע בכלכלה העולמית, הוביל לעלייה של מאות אחוזים במחיר הנפט, והזרים עושר עצום למדינות המפיקות, ובמיוחד לערב הסעודית."
+            },
+            {
+                question: "מה הייתה הסיבה העיקרית לפלישת ישראל ללבנון ב-1982 ('מבצע שלום הגליל')?",
+                answers: [
+                    { text: "הרצון להשמיד את תשתית אש\"ף בלבנון ולהבטיח את בחירתו של בשיר ג'ומייל לנשיא פרו-ישראלי.", correct: true },
+                    { text: "תגובה לפלישה סורית לשטח ישראל.", correct: false },
+                    { text: "יישום החלטת או\"ם שקראה לפירוק המיליציות בלבנון.", correct: false },
+                    { text: "ניסיון לכבוש את ביירות ולספח אותה לישראל.", correct: false }
+                ],
+                explanation: "הטקסט מסביר כי מטרותיה של ישראל בפלישה היו רחבות יותר מהמוצהר, וכללו את השמדת תשתית אש\"ף והתקנת משטר ידידותי בלבנון בראשות בשיר ג'ומייל, מנהיג הפלנגות."
+            },
+            {
+                question: "מה אפיין את משטריהם של חאפז אל-אסד בסוריה וסדאם חוסיין בעיראק?",
+                answers: [
+                    { text: "שלטון סמכותני המבוסס על הצבא, מפלגת הבעת' ונאמנות אישית ועדתית.", correct: true },
+                    { text: "דמוקרטיות פרלמנטריות עם מערכת רב-מפלגתית.", correct: false },
+                    { text: "מונרכיות מסורתיות המבוססות על חוקי ירושה.", correct: false },
+                    { text: "תיאוקרטיות אסלאמיות הנשלטות על ידי אנשי דת.", correct: false }
+                ],
+                explanation: "שני המשטרים מתוארים בטקסט כדיקטטורות שהתבססו על שליטה מוחלטת בצבא ובמפלגת הבעת', תוך טיפוח נאמנות על בסיס עדתי (עלווים בסוריה) ואזורי (תכריתים בעיראק)."
+            },
+            {
+                question: "מה הייתה תגובתו של הנשיא חאפז אל-אסד למרד האחים המוסלמים בעיר חמה ב-1982?",
+                answers: [
+                    { text: "דיכוי צבאי אכזרי שהביא להרס חלקים נרחבים מהעיר ולמותם של אלפי אזרחים.", correct: true },
+                    { text: "משא ומתן שהוביל להסכם פשרה וחלוקת שלטון.", correct: false },
+                    { text: "התפטרות מתפקידו וקריאה לבחירות חדשות.", correct: false },
+                    { text: "פנייה לאו\"ם בבקשה לכוח שמירת שלום.", correct: false }
+                ],
+                explanation: "הטקסט מתאר את אירועי חמה כדיכוי צבאי חסר רחמים, שבו הצבא הסורי, בפיקודו של אחיו של הנשיא, הרס שכונות שלמות והרג אלפי אנשים כדי למחוץ את המרד."
+            },
+            {
+                question: "מה היה 'הקונצנזוס שלאחר וושינגטון' (Post-Washington Consensus)?",
+                answers: [
+                    { text: "גרסה מתוקנת שהוסיפה דגש על ממשל תקין, מוסדות, רשתות ביטחון חברתי ומאבק בשחיתות.", correct: true },
+                    { text: "חזרה מלאה למודל של כלכלה מתוכננת וריכוזית.", correct: false },
+                    { text: "קריאה לביטול מוחלט של כל התערבות ממשלתית בכלכלה.", correct: false },
+                    { text: "רעיון שהתמקד אך ורק בצמיחה כלכלית ללא התחשבות בגורמים חברתיים.", correct: false }
+                ],
+                explanation: "בעקבות התוצאות המאכזבות של הרפורמות הראשונות, התפתח 'הקונצנזוס שלאחר וושינגטון' שהכיר בחשיבותם של מוסדות חזקים, ממשל תקין, שלטון החוק ורשתות ביטחון חברתיות כתנאים להצלחת הרפורמות."
+            },
+            {
+                question: "במהלך מלחמת איראן-עיראק, מדוע תמכה סוריה באיראן הלא-ערבית נגד עיראק הערבית?",
+                answers: [
+                    { text: "בשל היריבות העזה בין משטרי הבעת' בסוריה ובעיראק, והראייה של איראן המהפכנית כמתנגדת לסדר האמריקאי-ישראלי.", correct: true },
+                    { text: "בשל ברית צבאית סודית שהייתה קיימת בין סוריה לאיראן עוד מתקופת השאה.", correct: false },
+                    { text: "מכיוון שאיראן הציעה לסוריה סיוע כלכלי גדול יותר מזה שהציעו מדינות המפרץ.", correct: false },
+                    { text: "בשל לחץ מצד ברית המועצות, שהייתה בעלת ברית של איראן.", correct: false }
+                ],
+                explanation: "הטקסט מסביר שהחלטתו של אל-אסד נבעה מהיריבות האידיאולוגית והפוליטית העמוקה עם משטר הבעת' העיראקי, ומהשקפתו שאיראן המהפכנית היא כוח אנטי-אימפריאליסטי חשוב באזור."
+            },
+            {
+                question: "מה היה אחד המאפיינים הבולטים של השינוי החברתי בטורקיה לאחר 1950?",
+                answers: [
+                    { text: "עיור מהיר, גידול אוכלוסין משמעותי, והגירת עבודה נרחבת למערב אירופה.", correct: true },
+                    { text: "חזרה לאורח חיים כפרי וחקלאי ברובו.", correct: false },
+                    { text: "ירידה דרמטית בשיעורי האוריינות במדינה.", correct: false },
+                    { text: "בידוד מוחלט מהשפעות תרבותיות חיצוניות.", correct: false }
+                ],
+                explanation: "הטקסט מתאר את טורקיה שלאחר 1950 כחווה תהליכי שינוי עמוקים, כולל גידול אוכלוסין מהיר, הגירה מסיבית מהכפר לעיר, וגל גדול של 'עובדים אורחים' שיצאו למערב אירופה, במיוחד לגרמניה."
+            },
+            {
+                question: "מה הייתה 'מלחמת ההתשה' שהשיק נאצר נגד ישראל לאחר 1967?",
+                answers: [
+                    { text: "עימות ארטילרי ואווירי ממושך לאורך תעלת סואץ, שנועד להתיש את ישראל ולשקם את הגאווה המצרית.", correct: true },
+                    { text: "מלחמה כלכלית שכללה חרם מלא על סחורות ישראליות.", correct: false },
+                    { text: "סדרה של שיחות שלום חשאיות שנכשלו.", correct: false },
+                    { text: "מבצע צבאי לכיבוש מחדש של כל חצי האי סיני.", correct: false }
+                ],
+                explanation: "'מלחמת ההתשה' (1969-1970) הייתה יוזמה של נאצר לנהל עימות צבאי מוגבל אך מתמשך לאורך תעלת סואץ, במטרה להפעיל לחץ על ישראל ולהראות שהצבא המצרי לא הושמד."
+            },
+            {
+                question: "מהי 'האינתיפאדה' הראשונה שהחלה ב-1987?",
+                answers: [
+                    { text: "התקוממות עממית פלסטינית נגד הכיבוש הישראלי בגדה המערבית וברצועת עזה.", correct: true },
+                    { text: "מלחמה כוללת בין ישראל למדינות ערב.", correct: false },
+                    { text: "הפיכה צבאית בירדן.", correct: false },
+                    { text: "הכרזת עצמאות של כווית.", correct: false }
+                ],
+                explanation: "הטקסט מציין שהאינתיפאדה הראשונה, שהחלה ב-1987, הייתה התקוממות עממית המונית של פלסטינים בשטחים הכבושים נגד השלטון הצבאי הישראלי."
+            }
+        ];
+
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let userAnswers = new Array(quizData.length).fill(null);
+
+        const questionNumberEl = document.getElementById('question-number');
+        const totalQuestionsEl = document.getElementById('total-questions');
+        const questionTextEl = document.getElementById('question-text');
+        const answersContainerEl = document.getElementById('answers-container');
+        const feedbackContainerEl = document.getElementById('feedback-container');
+        const feedbackTextEl = document.getElementById('feedback-text');
+        const explanationTextEl = document.getElementById('explanation-text');
+        const navigationContainerEl = document.getElementById('navigation-container');
+        const progressBarEl = document.getElementById('progress-bar');
+        const resultsContainerEl = document.getElementById('results-container');
+        const scoreEl = document.getElementById('score');
+        const restartBtn = document.getElementById('restart-btn');
+        const quizAreaEl = document.getElementById('quiz-area');
+        const expandBtn = document.getElementById('expand-btn');
+        const geminiExplanationArea = document.getElementById('gemini-explanation-area');
+        const geminiExplanationLoader = document.getElementById('gemini-explanation-loader');
+        const generateQuestionBtn = document.getElementById('generate-question-btn');
+        const geminiGenerationLoader = document.getElementById('gemini-generation-loader');
+
+        function shuffleArray(array) {
+            for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+        }
+
+        function createNavigation() {
+            navigationContainerEl.innerHTML = '';
+            for (let i = 0; i < quizData.length; i++) {
+                const square = document.createElement('div');
+                square.textContent = i + 1;
+                square.classList.add('nav-square', 'rounded-md', 'font-semibold');
+                square.dataset.index = i;
+                square.addEventListener('click', () => navigateToQuestion(i));
+                navigationContainerEl.appendChild(square);
+            }
+        }
+
+        function updateNavigation() {
+            const squares = document.querySelectorAll('.nav-square');
+            squares.forEach((square, index) => {
+                square.classList.remove('current');
+                if (index === currentQuestionIndex) {
+                    square.classList.add('current');
+                }
+                
+                const answerInfo = userAnswers[index];
+                square.classList.remove('answered', 'correct', 'incorrect');
+                if (answerInfo !== null) {
+                    square.classList.add('answered');
+                    square.classList.add(answerInfo.isCorrect ? 'correct' : 'incorrect');
+                }
+            });
+        }
+        
+        function updateProgressBar() {
+            const answeredCount = userAnswers.filter(a => a !== null).length;
+            const progress = (answeredCount / quizData.length) * 100;
+            progressBarEl.style.width = `${progress}%`;
+        }
+
+        function loadQuestion(index) {
+            currentQuestionIndex = index;
+            const question = quizData[index];
+            
+            questionNumberEl.textContent = index + 1;
+            totalQuestionsEl.textContent = quizData.length;
+            questionTextEl.textContent = question.question;
+            answersContainerEl.innerHTML = '';
+            feedbackContainerEl.classList.add('hidden');
+            geminiExplanationArea.classList.add('hidden');
+            geminiExplanationArea.innerHTML = '';
+            expandBtn.disabled = false;
+            expandBtn.classList.remove('hidden');
+
+
+            const shuffledAnswers = shuffleArray([...question.answers.map((ans, i) => ({...ans, originalIndex: i}))]);
+
+            shuffledAnswers.forEach((answer) => {
+                const button = document.createElement('button');
+                button.textContent = answer.text;
+                button.classList.add('answer-btn', 'w-full', 'p-4', 'border-2', 'border-gray-300', 'rounded-lg', 'text-right', 'hover:bg-gray-100', 'hover:border-blue-400', 'transition-colors', 'duration-200');
+                button.dataset.correct = answer.correct;
+                button.dataset.originalIndex = answer.originalIndex;
+                button.addEventListener('click', selectAnswer);
+                answersContainerEl.appendChild(button);
+            });
+            
+            if (userAnswers[index] !== null) {
+                showFeedbackForAnsweredQuestion(index);
+            }
+
+            updateNavigation();
+            updateProgressBar();
+        }
+
+        function selectAnswer(e) {
+            const selectedButton = e.target;
+            const isCorrect = selectedButton.dataset.correct === 'true';
+            
+            if (userAnswers[currentQuestionIndex] !== null) return;
+
+            userAnswers[currentQuestionIndex] = {
+                selectedIndex: parseInt(selectedButton.dataset.originalIndex),
+                isCorrect: isCorrect
+            };
+
+            if (isCorrect) {
+                score++;
+            }
+
+            showFeedbackForAnsweredQuestion(currentQuestionIndex);
+            
+            const answeredCount = userAnswers.filter(a => a !== null).length;
+            if (answeredCount === quizData.length) {
+                showResults();
+            }
+        }
+        
+        function showFeedbackForAnsweredQuestion(index) {
+            const question = quizData[index];
+            const answerInfo = userAnswers[index];
+            const isCorrect = answerInfo.isCorrect;
+            
+            feedbackContainerEl.classList.remove('hidden', 'bg-green-100', 'bg-red-100', 'text-green-800', 'text-red-800');
+            if (isCorrect) {
+                feedbackTextEl.textContent = 'תשובה נכונה!';
+                feedbackContainerEl.classList.add('bg-green-100', 'text-green-800');
+            } else {
+                feedbackTextEl.textContent = 'תשובה שגויה.';
+                feedbackContainerEl.classList.add('bg-red-100', 'text-red-800');
+            }
+            explanationTextEl.textContent = question.explanation;
+            
+            const buttons = answersContainerEl.querySelectorAll('.answer-btn');
+            buttons.forEach(button => {
+                button.disabled = true;
+                const buttonIsCorrect = button.dataset.correct === 'true';
+                const buttonOriginalIndex = parseInt(button.dataset.originalIndex);
+
+                if (buttonIsCorrect) {
+                    button.classList.add('correct');
+                } else if (buttonOriginalIndex === answerInfo.selectedIndex && !isCorrect) {
+                    button.classList.add('incorrect');
+                }
+            });
+            
+            updateNavigation();
+            updateProgressBar();
+        }
+
+        async function handleExpandExplanation() {
+            expandBtn.disabled = true;
+            geminiExplanationLoader.classList.remove('hidden');
+            geminiExplanationArea.classList.add('hidden');
+
+            const question = quizData[currentQuestionIndex];
+            const correctAnswerText = question.answers.find(a => a.correct).text;
+
+            const prompt = `אתה מומחה לכלכלה פוליטית של המזרח התיכון. סטודנט ענה על שאלת חידון. אנא ספק הסבר מפורט יותר לנושא.
+            שאלה מקורית: "${question.question}"
+            תשובה נכונה: "${correctAnswerText}"
+            הסבר מקורי: "${question.explanation}"
+            הרחב על ההסבר המקורי, ספק יותר הקשר, רקע היסטורי, או קישורים לנושאים אחרים מהחומר. השתמש בשפה ברורה ונגישה. התשובה חייבת להיות בעברית.`;
+
+            const expandedExplanation = await callGemini(prompt);
+            geminiExplanationLoader.classList.add('hidden');
+            geminiExplanationArea.innerHTML = expandedExplanation.replace(/\n/g, '<br>');
+            geminiExplanationArea.classList.remove('hidden');
+        }
+
+        async function handleGenerateQuestion() {
+            generateQuestionBtn.disabled = true;
+            geminiGenerationLoader.classList.remove('hidden');
+
+            const existingQuestions = quizData.map(q => q.question).join("\n");
+            const prompt = `אתה יוצר חידונים המתמחה בכלכלה הפוליטית של המזרח התיכון. צור שאלה אחת חדשה ומקורית בסגנון אמריקאי (multiple choice) שאינה מופיעה ברשימה הבאה:
+            ${existingQuestions}
+            השאלה צריכה להיות מאתגרת ולכסות נושאים כמו 'קונצנזוס וושינגטון', 'קפיטליזם מקורבים', 'תוכניות התאמה מבנית', או הכלכלות הפוליטיות של טורקיה, מצרים, איראן וכו', בהתבסס על החומר שסופק.
+            הגב אך ורק עם אובייקט JSON בפורמט הבא: { "question": "...", "answers": [ { "text": "...", "correct": boolean }, ... ], "explanation": "..." }.
+            ודא שיש רק תשובה נכונה אחת. כל הטקסט חייב להיות בעברית.`;
+            
+            try {
+                const newQuestionJson = await callGemini(prompt, true);
+                const newQuestion = JSON.parse(newQuestionJson);
+
+                if (newQuestion.question && newQuestion.answers && newQuestion.explanation) {
+                    quizData.push(newQuestion);
+                    userAnswers.push(null);
+                    
+                    restartQuiz(); // Restart to update UI
+                    navigateToQuestion(quizData.length - 1); // Navigate to the new question
+                } else {
+                    throw new Error("Generated JSON is missing required fields.");
+                }
+            } catch (error) {
+                console.error("Failed to generate or parse new question:", error);
+                alert("שגיאה ביצירת שאלה חדשה. נסה שוב.");
+            } finally {
+                generateQuestionBtn.disabled = false;
+                geminiGenerationLoader.classList.add('hidden');
+            }
+        }
+
+
+        function navigateToQuestion(index) {
+            if (index >= 0 && index < quizData.length) {
+                resultsContainerEl.classList.add('hidden');
+                quizAreaEl.classList.remove('hidden');
+                loadQuestion(index);
+            }
+        }
+        
+        function showResults() {
+            quizAreaEl.classList.add('hidden');
+            resultsContainerEl.classList.remove('hidden');
+            scoreEl.textContent = `${score} / ${quizData.length}`;
+        }
+        
+        function restartQuiz() {
+            currentQuestionIndex = 0;
+            score = 0;
+            userAnswers = new Array(quizData.length).fill(null);
+            quizAreaEl.classList.remove('hidden');
+            resultsContainerEl.classList.add('hidden');
+            createNavigation();
+            loadQuestion(0);
+        }
+
+        restartBtn.addEventListener('click', restartQuiz);
+        expandBtn.addEventListener('click', handleExpandExplanation);
+        generateQuestionBtn.addEventListener('click', handleGenerateQuestion);
+
+        // Initial load
+        createNavigation();
+        loadQuestion(0);
+    </script>
+
+</body>
+</html>
